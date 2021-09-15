@@ -1,4 +1,4 @@
-import { Client, VoiceChannel, Guild, VoiceConnection } from "discord.js";
+import { Client, VoiceChannel, Guild, VoiceConnection, StreamDispatcher, User } from "discord.js";
 
 // discord.js モジュールのインポート
 const Discord = require('discord.js');
@@ -7,6 +7,8 @@ const config = require('./config.json');
 
 // Discord Clientのインスタンス作成
 const client: Client = new Discord.Client();
+
+const queue = new Array;
 
 function getTimeText() {
     let DD = new Date();
@@ -76,7 +78,7 @@ client.on('message', message => {
         else if (prefix + `p` == command || prefix + `play` == command) {
             if (!getConnect(message.guild)) {
                 let VC: VoiceChannel | null = message.member != null ? message.member.voice.channel : null;
-                if(!join(VC)) return;
+                if (!join(VC)) return;
             }
 
             let reg = /^(http(s)?:\/\/)?((w){3}.)?youtu(be|.be)?(\.com)?\/.+/gm;
@@ -90,13 +92,38 @@ client.on('message', message => {
                     if (!message.content.split(" ")[1].match(reg)) {
                         message.reply('検索機能は未実装です');
                     } else {
-                        //再生する
-                        const dispatcher = connect.play(ytdl(message.content.split(" ")[1]));
-                        dispatcher.on(`speaking`, speaking => {
-                            if (speaking == false) {
-                                message.reply(`再生が終了しました`);
-                            }
-                        });
+                        function play(dispatcher: StreamDispatcher){
+                            //もし停止したら次の曲を再生する
+                            dispatcher.on(`speaking`, (speaking: boolean) => {
+                                if (speaking == false) {
+                                    if (queue.length != 0) {
+                                        dispatcher = connect!.play(ytdl(queue[0]));
+                                        queue.shift();
+
+                                        play(dispatcher);
+                                    }
+                                    else{
+                                        return;
+                                    }
+                                }
+                            })
+                        }
+
+                        //StreamDispatcherを定義
+                        let dispatcher: StreamDispatcher = connect!.dispatcher;
+
+                        //キューに追加する
+                        queue.push(message.content.split(" ")[1]);
+
+                        //もし再生されてないなら再生する
+                        if (!connect!.dispatcher) {
+                            dispatcher = connect!.play(ytdl(queue[0]));
+                            queue.shift();
+
+                            play(dispatcher);
+                        } else {
+                            return;
+                        }
                     }
                 } else {
                     message.reply(`引数が不正です`);
@@ -106,12 +133,18 @@ client.on('message', message => {
 
             }
         }
+        else if (prefix + `queue` == command) {
+            if (queue.length != 0) {
+                message.channel.send(JSON.stringify(queue));
+            }
+        }
 
         else if (prefix + `dc` == command || prefix + `disconnect` == command) {
             let connect: VoiceConnection | undefined | null;
             if (connect = getConnect(message.guild)) {
                 connect.disconnect();
             }
+            queue.length = 0;
         }
     }
 })
